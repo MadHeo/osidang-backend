@@ -220,33 +220,30 @@ router.post('/verify-email', async (req, res) => {
   try {
     // 토큰 조회
     const tokenResult = await pool.query(
-      'SELECT user_id, expires_at FROM verification_tokens WHERE token = $1 AND type = $2',
-      [token, 'email'],
+      'SELECT email, expires_at FROM verification_tokens WHERE token = $1 AND type = $2',
+      [token, 'email_signup'],
     );
 
     if (tokenResult.rows.length === 0) {
       return res.status(404).send('유효하지 않은 토큰입니다.');
     }
 
-    const { user_id, expires_at } = tokenResult.rows[0];
+    const { email, expires_at } = tokenResult.rows[0];
 
     // 토큰 만료 확인
     if (new Date() > new Date(expires_at)) {
       return res.status(400).send('만료된 토큰입니다.');
     }
 
-    // 사용자 이메일 인증 상태 업데이트
-    await pool.query(
-      'UPDATE users SET is_email_verified = true WHERE id = $1',
-      [user_id],
-    );
-
     // 사용된 토큰 삭제
     await pool.query('DELETE FROM verification_tokens WHERE token = $1', [
       token,
     ]);
 
-    res.json({ message: '이메일이 성공적으로 인증되었습니다.' });
+    res.json({
+      message: '이메일이 성공적으로 인증되었습니다.',
+      email: email,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).send('Server error');
