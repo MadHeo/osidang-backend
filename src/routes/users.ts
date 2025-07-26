@@ -155,26 +155,22 @@ router.put('/nickname', async (req: AuthRequest, res) => {
 });
 
 // 이메일 인증 요청 API
-router.post('/request-verification', async (req: AuthRequest, res) => {
-  if (!req.user?.userId) {
-    return res.status(401).send('인증이 필요합니다.');
+router.post('/request-verification', async (req, res) => {
+  const { email } = req.body;
+
+  if (!email) {
+    return res.status(400).send('이메일을 입력해주세요.');
   }
 
   try {
-    // 사용자 정보 조회
+    // 이미 가입된 이메일인지 확인
     const userResult = await pool.query(
-      'SELECT email, is_email_verified FROM users WHERE id = $1',
-      [req.user.userId],
+      'SELECT id FROM users WHERE email = $1',
+      [email],
     );
 
-    if (userResult.rows.length === 0) {
-      return res.status(404).send('사용자를 찾을 수 없습니다.');
-    }
-
-    const user = userResult.rows[0];
-
-    if (user.is_email_verified) {
-      return res.status(400).send('이미 인증된 이메일입니다.');
+    if (userResult.rows.length > 0) {
+      return res.status(400).send('이미 가입된 이메일입니다.');
     }
 
     // 인증 토큰 생성
@@ -184,19 +180,19 @@ router.post('/request-verification', async (req: AuthRequest, res) => {
 
     // 기존 토큰 삭제 후 새 토큰 저장
     await pool.query(
-      'DELETE FROM verification_tokens WHERE user_id = $1 AND type = $2',
-      [req.user.userId, 'email'],
+      'DELETE FROM verification_tokens WHERE email = $1 AND type = $2',
+      [email, 'email_signup'],
     );
 
     await pool.query(
-      'INSERT INTO verification_tokens (user_id, token, type, expires_at) VALUES ($1, $2, $3, $4)',
-      [req.user.userId, token, 'email', expiresAt],
+      'INSERT INTO verification_tokens (email, token, type, expires_at) VALUES ($1, $2, $3, $4)',
+      [email, token, 'email_signup', expiresAt],
     );
 
     // 인증 이메일 전송
     const verificationLink = `${process.env.FRONTEND_URL}/verify-email?token=${token}`;
     await sendEmail(
-      user.email,
+      email,
       '이메일 인증',
       `
       <h1>이메일 인증</h1>
