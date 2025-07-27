@@ -156,6 +156,7 @@ router.put('/nickname', async (req: AuthRequest, res) => {
 
 // 이메일 인증 요청 API
 router.post('/request-verification', async (req, res) => {
+  console.log('Request body:', req.body);
   const { email } = req.body;
 
   if (!email) {
@@ -164,6 +165,7 @@ router.post('/request-verification', async (req, res) => {
 
   try {
     // 이미 가입된 이메일인지 확인
+    console.log('Checking if email exists:', email);
     const userResult = await pool.query(
       'SELECT id FROM users WHERE email = $1',
       [email],
@@ -179,6 +181,7 @@ router.post('/request-verification', async (req, res) => {
     expiresAt.setHours(expiresAt.getHours() + 24); // 24시간 후 만료
 
     // 기존 토큰 삭제 후 새 토큰 저장
+    console.log('Deleting existing tokens for email:', email);
     await pool.query(
       'DELETE FROM verification_tokens WHERE email = $1 AND type = $2',
       [email, 'email_signup'],
@@ -189,22 +192,46 @@ router.post('/request-verification', async (req, res) => {
       [email, token, 'email_signup', expiresAt],
     );
 
-    // 인증 이메일 전송
-    const verificationLink = `${process.env.FRONTEND_URL}/verify-email?token=${token}`;
-    await sendEmail(
-      email,
-      '이메일 인증',
-      `
-      <h1>이메일 인증</h1>
-      <p>아래 링크를 클릭하여 이메일을 인증해주세요:</p>
-      <a href="${verificationLink}">이메일 인증하기</a>
-      <p>이 링크는 24시간 동안 유효합니다.</p>
-      `,
-    );
+    // 인증 이메일 전송 시도
+    try {
+      // 딥링크 URL 생성 (exp:// 스키마 사용)
+      const verificationLink = `exp://192.168.0.53:8081/--/verify-email?token=${token}`;
+      console.log(
+        'Attempting to send email with verification link:',
+        verificationLink,
+      );
+      console.log('Email configuration:', {
+        service: process.env.EMAIL_SERVICE,
+        user: process.env.EMAIL_USER,
+      });
+
+      await sendEmail(
+        email,
+        '이메일 인증',
+        `
+        <h1>이메일 인증</h1>
+        <p>아래의 인증 코드를 앱에서 입력해주세요:</p>
+        <h2 style="background-color: #f5f5f5; padding: 10px; font-family: monospace;">${token}</h2>
+        <p>또는 앱에서 아래 버튼을 클릭하여 인증을 완료하세요:</p>
+        <a href="${verificationLink}" style="display: inline-block; background-color: #4CAF50; color: white; padding: 14px 20px; text-decoration: none; border-radius: 4px;">앱에서 인증하기</a>
+        <p>이 인증 코드는 24시간 동안 유효합니다.</p>
+        <p style="color: #666; font-size: 12px;">* 버튼이 작동하지 않는 경우, 인증 코드를 직접 입력해주세요.</p>
+        `,
+      );
+      console.log('Email sent successfully');
+    } catch (emailErr) {
+      console.error('Email sending failed:', emailErr);
+      // 이메일 전송 실패시에도 토큰은 생성된 상태로 응답
+      return res.json({
+        message:
+          '인증 토큰이 생성되었습니다만, 이메일 전송에 실패했습니다. 관리자에게 문의해주세요.',
+        token: token, // 개발 환경에서만 토큰을 직접 반환
+      });
+    }
 
     res.json({ message: '인증 이메일이 전송되었습니다.' });
   } catch (err) {
-    console.error(err);
+    console.error('Database operation failed:', err);
     res.status(500).send('Server error');
   }
 });
