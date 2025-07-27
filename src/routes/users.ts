@@ -156,7 +156,6 @@ router.put('/nickname', async (req: AuthRequest, res) => {
 
 // 이메일 인증 요청 API
 router.post('/request-verification', async (req, res) => {
-  console.log('Request body:', req.body);
   const { email } = req.body;
 
   if (!email) {
@@ -165,7 +164,6 @@ router.post('/request-verification', async (req, res) => {
 
   try {
     // 이미 가입된 이메일인지 확인
-    console.log('Checking if email exists:', email);
     const userResult = await pool.query(
       'SELECT id FROM users WHERE email = $1',
       [email],
@@ -175,57 +173,55 @@ router.post('/request-verification', async (req, res) => {
       return res.status(400).send('이미 가입된 이메일입니다.');
     }
 
-    // 인증 토큰 생성
+    // 6자리 인증 코드 생성
+    const verificationCode = crypto.randomInt(100000, 999999).toString();
+    // 토큰은 내부적으로만 사용
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + 24); // 24시간 후 만료
 
     // 기존 토큰 삭제 후 새 토큰 저장
-    console.log('Deleting existing tokens for email:', email);
     await pool.query(
       'DELETE FROM verification_tokens WHERE email = $1 AND type = $2',
       [email, 'email_signup'],
     );
 
     await pool.query(
-      'INSERT INTO verification_tokens (email, token, type, expires_at) VALUES ($1, $2, $3, $4)',
-      [email, token, 'email_signup', expiresAt],
+      'INSERT INTO verification_tokens (email, token, verification_code, type, expires_at) VALUES ($1, $2, $3, $4, $5)',
+      [email, token, verificationCode, 'email_signup', expiresAt],
     );
 
     // 인증 이메일 전송 시도
     try {
-      // 딥링크 URL 생성 (exp:// 스키마 사용)
-      const verificationLink = `exp://192.168.0.53:8081/--/verify-email?token=${token}`;
-      console.log(
-        'Attempting to send email with verification link:',
-        verificationLink,
-      );
-      console.log('Email configuration:', {
-        service: process.env.EMAIL_SERVICE,
-        user: process.env.EMAIL_USER,
-      });
-
       await sendEmail(
         email,
-        '이메일 인증',
+        '오시당 이메일 인증',
         `
-        <h1>이메일 인증</h1>
-        <p>아래의 인증 코드를 앱에서 입력해주세요:</p>
-        <h2 style="background-color: #f5f5f5; padding: 10px; font-family: monospace;">${token}</h2>
-        <p>또는 앱에서 아래 버튼을 클릭하여 인증을 완료하세요:</p>
-        <a href="${verificationLink}" style="display: inline-block; background-color: #4CAF50; color: white; padding: 14px 20px; text-decoration: none; border-radius: 4px;">앱에서 인증하기</a>
-        <p>이 인증 코드는 24시간 동안 유효합니다.</p>
-        <p style="color: #666; font-size: 12px;">* 버튼이 작동하지 않는 경우, 인증 코드를 직접 입력해주세요.</p>
+        <div style="max-width: 600px; margin: 0 auto; padding: 20px; font-family: Arial, sans-serif;">
+          <h1 style="color: #333; text-align: center;">이메일 인증</h1>
+          
+          <div style="text-align: center; margin: 30px 0; padding: 20px; background: #f8f9fa; border-radius: 10px;">
+            <h2 style="color: #666; font-size: 16px; margin-bottom: 15px;">인증 코드</h2>
+            <div style="font-size: 32px; letter-spacing: 5px; font-family: monospace; color: #2c3e50; margin: 20px 0;">
+              ${verificationCode}
+            </div>
+            <p style="color: #666; font-size: 14px;">앱에서 위 6자리 코드를 입력하세요</p>
+          </div>
+
+          <p style="color: #666; font-size: 12px; text-align: center; margin-top: 30px; line-height: 1.5;">
+            * 이 인증은 24시간 동안 유효합니다.<br>
+            * 본인이 요청하지 않은 경우 이 이메일을 무시하세요.
+          </p>
+        </div>
         `,
       );
-      console.log('Email sent successfully');
     } catch (emailErr) {
       console.error('Email sending failed:', emailErr);
       // 이메일 전송 실패시에도 토큰은 생성된 상태로 응답
       return res.json({
         message:
-          '인증 토큰이 생성되었습니다만, 이메일 전송에 실패했습니다. 관리자에게 문의해주세요.',
-        token: token, // 개발 환경에서만 토큰을 직접 반환
+          '인증 코드가 생성되었습니다만, 이메일 전송에 실패했습니다. 관리자에게 문의해주세요.',
+        verificationCode: verificationCode, // 개발 환경에서만 코드를 직접 반환
       });
     }
 
@@ -236,35 +232,35 @@ router.post('/request-verification', async (req, res) => {
   }
 });
 
-// 이메일 인증 확인 API
+// 이메일 인증 확인 API (코드 사용)
 router.post('/verify-email', async (req, res) => {
-  const { token } = req.body;
+  const { email, code } = req.body;
 
-  if (!token) {
-    return res.status(400).send('인증 토큰이 필요합니다.');
+  if (!email || !code) {
+    return res.status(400).send('이메일과 인증 코드를 모두 입력해주세요.');
   }
 
   try {
     // 토큰 조회
     const tokenResult = await pool.query(
-      'SELECT email, expires_at FROM verification_tokens WHERE token = $1 AND type = $2',
-      [token, 'email_signup'],
+      'SELECT email, expires_at FROM verification_tokens WHERE email = $1 AND verification_code = $2 AND type = $3',
+      [email, code, 'email_signup'],
     );
 
     if (tokenResult.rows.length === 0) {
-      return res.status(404).send('유효하지 않은 토큰입니다.');
+      return res.status(404).send('유효하지 않은 인증 코드입니다.');
     }
 
-    const { email, expires_at } = tokenResult.rows[0];
+    const { expires_at } = tokenResult.rows[0];
 
     // 토큰 만료 확인
     if (new Date() > new Date(expires_at)) {
-      return res.status(400).send('만료된 토큰입니다.');
+      return res.status(400).send('만료된 인증 코드입니다.');
     }
 
     // 사용된 토큰 삭제
-    await pool.query('DELETE FROM verification_tokens WHERE token = $1', [
-      token,
+    await pool.query('DELETE FROM verification_tokens WHERE email = $1', [
+      email,
     ]);
 
     res.json({
