@@ -52,16 +52,18 @@ router.post('/register', async (req, res) => {
       );
 
       // 개인정보 처리방침 동의 기록
-      await client.query(
-        'INSERT INTO privacy_policy_consents (user_id, policy_version_id, consent_type, is_agreed, ip_address) VALUES ($1, $2, $3, $4, $5)',
-        [
-          userResult.rows[0].id,
-          policyVersionResult.rows[0].id,
-          'privacy_policy',
-          true,
-          req.ip,
-        ],
-      );
+      if (privacyPolicyAgreed) {
+        await client.query(
+          'INSERT INTO privacy_policy_consents (user_id, policy_version_id, consent_type, is_agreed, ip_address) VALUES ($1, $2, $3, $4, $5)',
+          [
+            userResult.rows[0].id,
+            policyVersionResult.rows[0].id,
+            'privacy_policy',
+            true,
+            req.ip,
+          ],
+        );
+      }
 
       await client.query('COMMIT');
       res.status(201).json(userResult.rows[0]);
