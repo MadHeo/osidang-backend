@@ -8,7 +8,10 @@ const router = Router();
 router.get('/', authenticateToken, async (req, res) => {
   const authReq = req as AuthRequest;
   try {
-    const result = await pool.query('SELECT * FROM clothes WHERE user_id = $1', [authReq.user?.userId]);
+    const result = await pool.query(
+      'SELECT * FROM clothes WHERE user_id = $1',
+      [authReq.user?.id],
+    );
     res.json(result.rows);
   } catch (err) {
     console.error(err);
@@ -27,7 +30,16 @@ router.post('/', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
       'INSERT INTO clothes (user_id, name, type, brand, color, seasons, image_url, metadata) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
-      [authReq.user?.userId, name, type, brand, color, seasons, image_url, metadata]
+      [
+        authReq.user?.id,
+        name,
+        type,
+        brand,
+        color,
+        seasons,
+        image_url,
+        metadata,
+      ],
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {

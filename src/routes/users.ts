@@ -1,383 +1,48 @@
 import { Router } from 'express';
-import bcrypt from 'bcrypt';
-import jwt from 'jsonwebtoken';
-import pool from '../config/database';
 import { AuthRequest } from '../middlewares/auth';
-import { sendEmail } from '../config/email';
-import crypto from 'crypto';
+import signup from '../services/auth/signup';
+import login from '../services/auth/login';
+import nickname from '../services/auth/nickname';
+import requestVerification from '../services/verify/request-verification';
+import verifyEmail from '../services/verify/verify-email';
+import forgotPassword from '../services/auth/forgot-password';
+import changePassword from '../services/auth/change-password';
 
 const router = Router();
-const saltRounds = 10;
 
 // 사용자 등록 API
-router.post('/register', async (req, res) => {
-  const { email, password, nickname, privacyPolicyAgreed } = req.body;
-
-  // 필수 입력값 검증
-  if (!email || !password) {
-    return res.status(400).send('이메일과 비밀번호를 모두 입력해주세요.');
-  }
-
-  // 개인정보 처리방침 동의 여부 확인
-  if (!privacyPolicyAgreed) {
-    return res.status(400).send('개인정보 처리방침 동의가 필요합니다.');
-  }
-
-  //닉네임 중복 확인
-  const nicknameCheckResult = await pool.query(
-    'SELECT id FROM users WHERE nickname = $1',
-    [nickname],
-  );
-  if (nicknameCheckResult.rows.length > 0) {
-    return res.status(400).send('이미 사용중인 닉네임입니다.');
-  }
-
-  try {
-    // 트랜잭션 시작
-    const client = await pool.connect();
-
-    try {
-      await client.query('BEGIN');
-
-      // 사용자 등록
-      const password_hash = await bcrypt.hash(password, saltRounds);
-      const userResult = await client.query(
-        'INSERT INTO users (email, password_hash, nickname) VALUES ($1, $2, $3) RETURNING id, email, nickname, created_at',
-        [email, password_hash, nickname || null],
-      );
-
-      // 최신 개인정보 처리방침 버전 조회
-      const policyVersionResult = await client.query(
-        'SELECT id FROM privacy_policy_versions ORDER BY effective_date DESC LIMIT 1',
-      );
-
-      // 개인정보 처리방침 동의 기록
-      if (privacyPolicyAgreed) {
-        await client.query(
-          'INSERT INTO privacy_policy_consents (user_id, policy_version_id, consent_type, is_agreed, ip_address) VALUES ($1, $2, $3, $4, $5)',
-          [
-            userResult.rows[0].id,
-            policyVersionResult.rows[0].id,
-            'privacy_policy',
-            true,
-            req.ip,
-          ],
-        );
-      }
-
-      await client.query('COMMIT');
-      res.status(201).json(userResult.rows[0]);
-    } catch (err: any) {
-      await client.query('ROLLBACK');
-      if (err.code === '23505') {
-        // unique_violation
-        return res.status(409).send('이미 사용중인 이메일입니다.');
-      }
-      throw err;
-    } finally {
-      client.release();
-    }
-  } catch (err) {
-    console.error(err);
-    res.status(500).send('Server error');
-  }
+router.post('/signup', async (req, res) => {
+  signup(req, res);
 });
 
 // 로그인 API
 router.post('/login', async (req, res) => {
-  const { email, password } = req.body;
-  if (!email || !password) {
-    return res.status(400).send('이메일과 비밀번호를 모두 입력해주세요.');
-  }
-
-  try {
-    const result = await pool.query('SELECT * FROM users WHERE email = $1', [
-      email,
-    ]);
-    if (result.rows.length === 0) {
-      return res.status(401).send('사용자를 찾을 수 없습니다.');
-    }
-
-    const user = result.rows[0];
-    const match = await bcrypt.compare(password, user.password_hash);
-
-    if (match) {
-      const token = jwt.sign(
-        {
-          userId: user.id,
-          nickname: user.nickname,
-        },
-        process.env.JWT_SECRET as string,
-        { expiresIn: '1h' },
-      );
-      res.json({
-        token,
-        user: {
-          id: user.id,
-          email: user.email,
-          nickname: user.nickname,
-        },
-      });
-    } else {
-      res.status(401).send('비밀번호가 일치하지 않습니다.');
-    }
-  } catch (err) {
-    console.error(err);
-    res.status(500).send('Server error');
-  }
+  login(req, res);
 });
 
 // 닉네임 수정 API
 router.put('/nickname', async (req: AuthRequest, res) => {
-  if (!req.user?.userId) {
-    return res.status(401).send('인증이 필요합니다.');
-  }
-
-  const { nickname } = req.body;
-
-  if (!nickname) {
-    return res.status(400).send('닉네임을 입력해주세요.');
-  }
-
-  try {
-    const result = await pool.query(
-      'UPDATE users SET nickname = $1 WHERE id = $2 RETURNING id, email, nickname',
-      [nickname, req.user.userId],
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).send('사용자를 찾을 수 없습니다.');
-    }
-
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).send('Server error');
-  }
+  nickname(req, res);
 });
 
 // 이메일 인증 요청 API
 router.post('/request-verification', async (req, res) => {
-  const { email } = req.body;
-
-  if (!email) {
-    return res.status(400).send('이메일을 입력해주세요.');
-  }
-
-  try {
-    // 이미 가입된 이메일인지 확인
-    const userResult = await pool.query(
-      'SELECT id FROM users WHERE email = $1',
-      [email],
-    );
-
-    if (userResult.rows.length > 0) {
-      return res.status(400).send('이미 가입된 이메일입니다.');
-    }
-
-    // 6자리 인증 코드 생성
-    const verificationCode = crypto.randomInt(100000, 999999).toString();
-    // 토큰은 내부적으로만 사용
-    const token = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + 24); // 24시간 후 만료
-
-    // 기존 토큰 삭제 후 새 토큰 저장
-    await pool.query(
-      'DELETE FROM verification_tokens WHERE email = $1 AND type = $2',
-      [email, 'email_signup'],
-    );
-
-    await pool.query(
-      'INSERT INTO verification_tokens (email, token, verification_code, type, expires_at) VALUES ($1, $2, $3, $4, $5)',
-      [email, token, verificationCode, 'email_signup', expiresAt],
-    );
-
-    // 인증 이메일 전송 시도
-    try {
-      await sendEmail(
-        email,
-        '오시당 이메일 인증',
-        `
-        <div style="max-width: 600px; margin: 0 auto; padding: 20px; font-family: Arial, sans-serif;">
-          <h1 style="color: #333; text-align: center;">이메일 인증</h1>
-          
-          <div style="text-align: center; margin: 30px 0; padding: 20px; background: #f8f9fa; border-radius: 10px;">
-            <h2 style="color: #666; font-size: 16px; margin-bottom: 15px;">인증 코드</h2>
-            <div style="font-size: 32px; letter-spacing: 5px; font-family: monospace; color: #2c3e50; margin: 20px 0;">
-              ${verificationCode}
-            </div>
-            <p style="color: #666; font-size: 14px;">앱에서 위 6자리 코드를 입력하세요</p>
-          </div>
-
-          <p style="color: #666; font-size: 12px; text-align: center; margin-top: 30px; line-height: 1.5;">
-            * 이 인증은 24시간 동안 유효합니다.<br>
-            * 본인이 요청하지 않은 경우 이 이메일을 무시하세요.
-          </p>
-        </div>
-        `,
-      );
-    } catch (emailErr) {
-      console.error('Email sending failed:', emailErr);
-      // 이메일 전송 실패시에도 토큰은 생성된 상태로 응답
-      return res.json({
-        message:
-          '인증 코드가 생성되었습니다만, 이메일 전송에 실패했습니다. 관리자에게 문의해주세요.',
-        verificationCode: verificationCode, // 개발 환경에서만 코드를 직접 반환
-      });
-    }
-
-    res.json({ message: '인증 이메일이 전송되었습니다.' });
-  } catch (err) {
-    console.error('Database operation failed:', err);
-    res.status(500).send('Server error');
-  }
+  requestVerification(req, res);
 });
 
 // 이메일 인증 확인 API (코드 사용)
 router.post('/verify-email', async (req, res) => {
-  const { email, code } = req.body;
-
-  if (!email || !code) {
-    return res.status(400).send('이메일과 인증 코드를 모두 입력해주세요.');
-  }
-
-  try {
-    // 토큰 조회
-    const tokenResult = await pool.query(
-      'SELECT email, expires_at FROM verification_tokens WHERE email = $1 AND verification_code = $2 AND type = $3',
-      [email, code, 'email_signup'],
-    );
-
-    if (tokenResult.rows.length === 0) {
-      return res.status(404).send('유효하지 않은 인증 코드입니다.');
-    }
-
-    const { expires_at } = tokenResult.rows[0];
-
-    // 토큰 만료 확인
-    if (new Date() > new Date(expires_at)) {
-      return res.status(400).send('만료된 인증 코드입니다.');
-    }
-
-    // 사용된 토큰 삭제
-    await pool.query('DELETE FROM verification_tokens WHERE email = $1', [
-      email,
-    ]);
-
-    res.json({
-      message: '이메일이 성공적으로 인증되었습니다.',
-      email: email,
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).send('Server error');
-  }
+  verifyEmail(req, res);
 });
 
 // 임시 비밀번호 발급 API
 router.post('/forgot-password', async (req, res) => {
-  const { email } = req.body;
-
-  if (!email) {
-    return res.status(400).send('이메일을 입력해주세요.');
-  }
-
-  try {
-    // 사용자 확인
-    const userResult = await pool.query(
-      'SELECT id FROM users WHERE email = $1',
-      [email],
-    );
-
-    if (userResult.rows.length === 0) {
-      // 보안을 위해 사용자가 없어도 성공 메시지 반환
-      return res.json({ message: '임시 비밀번호가 이메일로 전송되었습니다.' });
-    }
-
-    // 임시 비밀번호 생성 (8자리 랜덤 문자열)
-    const tempPassword = crypto.randomBytes(4).toString('hex');
-
-    // 임시 비밀번호 해시화
-    const hashedPassword = await bcrypt.hash(tempPassword, saltRounds);
-
-    // 비밀번호 업데이트
-    await pool.query(
-      'UPDATE users SET password_hash = $1, password_changed_at = CURRENT_TIMESTAMP WHERE email = $2',
-      [hashedPassword, email],
-    );
-
-    // 임시 비밀번호 이메일 발송
-    await sendEmail(
-      email,
-      '임시 비밀번호 발급',
-      `
-      <h1>임시 비밀번호 발급</h1>
-      <p>임시 비밀번호: <strong>${tempPassword}</strong></p>
-      <p>보안을 위해 로그인 후 반드시 비밀번호를 변경해주세요.</p>
-      `,
-    );
-
-    res.json({ message: '임시 비밀번호가 이메일로 전송되었습니다.' });
-  } catch (err) {
-    console.error(err);
-    res.status(500).send('Server error');
-  }
+  forgotPassword(req, res);
 });
 
 // 비밀번호 변경 API
 router.post('/change-password', async (req: AuthRequest, res) => {
-  if (!req.user?.userId) {
-    return res.status(401).send('인증이 필요합니다.');
-  }
-
-  const { currentPassword, newPassword } = req.body;
-
-  if (!currentPassword || !newPassword) {
-    return res
-      .status(400)
-      .send('현재 비밀번호와 새 비밀번호를 모두 입력해주세요.');
-  }
-
-  if (newPassword.length < 8) {
-    return res.status(400).send('비밀번호는 8자 이상이어야 합니다.');
-  }
-
-  try {
-    // 현재 사용자 정보 조회
-    const userResult = await pool.query(
-      'SELECT password_hash FROM users WHERE id = $1',
-      [req.user.userId],
-    );
-
-    if (userResult.rows.length === 0) {
-      return res.status(404).send('사용자를 찾을 수 없습니다.');
-    }
-
-    // 현재 비밀번호 확인
-    const match = await bcrypt.compare(
-      currentPassword,
-      userResult.rows[0].password_hash,
-    );
-
-    if (!match) {
-      return res.status(400).send('현재 비밀번호가 일치하지 않습니다.');
-    }
-
-    // 새 비밀번호 해시화
-    const newPasswordHash = await bcrypt.hash(newPassword, saltRounds);
-
-    // 비밀번호 업데이트
-    await pool.query(
-      'UPDATE users SET password_hash = $1, password_changed_at = CURRENT_TIMESTAMP WHERE id = $2',
-      [newPasswordHash, req.user.userId],
-    );
-
-    res.json({ message: '비밀번호가 성공적으로 변경되었습니다.' });
-  } catch (err) {
-    console.error(err);
-    res.status(500).send('Server error');
-  }
+  changePassword(req, res);
 });
 
 export default router;

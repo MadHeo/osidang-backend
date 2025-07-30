@@ -3,7 +3,10 @@ import jwt from 'jsonwebtoken';
 
 // Request 인터페이스를 확장하여 사용자 정보를 포함하는 커스텀 타입 정의
 export interface AuthRequest extends Request {
-  user?: { userId: number };
+  user?: {
+    id: number; // userId -> id로 변경
+    nickname?: string; // 필요한 경우 nickname도 추가
+  };
 }
 
 // JWT 토큰을 검증하는 미들웨어
