@@ -7,6 +7,7 @@ import requestVerification from '../services/verify/request-verification';
 import verifyEmail from '../services/verify/verify-email';
 import forgotPassword from '../services/auth/forgot-password';
 import changePassword from '../services/auth/change-password';
+import deleteUser from '../services/auth/delete';
 
 const router = Router();
 
@@ -18,6 +19,11 @@ router.post('/signup', async (req, res) => {
 // 로그인 API
 router.post('/login', async (req, res) => {
   login(req, res);
+});
+
+//탈퇴 Api
+router.delete('/delete', async (req: AuthRequest, res) => {
+  deleteUser(req, res);
 });
 
 // 닉네임 수정 API
