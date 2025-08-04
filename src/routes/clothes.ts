@@ -1,51 +1,37 @@
 import { Router } from 'express';
 import pool from '../config/database';
 import authenticateToken, { AuthRequest } from '../middlewares/auth';
+import addClothes from '../services/clothes/add';
+import getClothes from '../services/clothes/get';
+import updateClothes from '../services/clothes/update';
+import deleteClothes from '../services/clothes/delete';
+import getClothesDetail from '../services/clothes/detail';
 
 const router = Router();
 
 // 옷 조회 API (인증 필요)
 router.get('/', authenticateToken, async (req, res) => {
-  const authReq = req as AuthRequest;
-  try {
-    const result = await pool.query(
-      'SELECT * FROM clothes WHERE user_id = $1',
-      [authReq.user?.id],
-    );
-    res.json(result.rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).send('Server error');
-  }
+  getClothes(req, res);
 });
 
 // 옷 등록 API (인증 필요)
-router.post('/', authenticateToken, async (req, res) => {
-  const authReq = req as AuthRequest;
-  const { name, type, brand, color, seasons, image_url, metadata } = req.body;
-  if (!name || !type) {
-    return res.status(400).send('이름과 종류는 필수 항목입니다.');
-  }
+router.post('/add', authenticateToken, async (req, res) => {
+  addClothes(req, res);
+});
 
-  try {
-    const result = await pool.query(
-      'INSERT INTO clothes (user_id, name, type, brand, color, seasons, image_url, metadata) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
-      [
-        authReq.user?.id,
-        name,
-        type,
-        brand,
-        color,
-        seasons,
-        image_url,
-        metadata,
-      ],
-    );
-    res.status(201).json(result.rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).send('Server error');
-  }
+//옷 수정 API (인증 필요)
+router.put('/update', authenticateToken, async (req, res) => {
+  updateClothes(req, res);
+});
+
+//옷 삭제 API (인증 필요)
+router.delete('/delete', authenticateToken, async (req, res) => {
+  deleteClothes(req, res);
+});
+
+//옷 상세 조회 API (인증 필요)
+router.get('/detail/:id', authenticateToken, async (req, res) => {
+  getClothesDetail(req, res);
 });
 
 export default router;
