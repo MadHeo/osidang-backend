@@ -181,3 +181,21 @@ CREATE INDEX idx_verification_tokens_email_type ON public.verification_tokens US
 -- public.verification_tokens foreign keys
 
 ALTER TABLE public.verification_tokens ADD CONSTRAINT verification_tokens_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+-- public.seasons definition
+
+-- Drop table
+
+-- DROP TABLE public.seasons;
+
+
+-- 1	봄
+-- 2	여름
+-- 3	가을
+-- 4	겨울
+CREATE TABLE public.seasons (
+	id serial4 NOT NULL,
+	"name" varchar(50) NOT NULL,
+	CONSTRAINT seasons_name_key UNIQUE (name),
+	CONSTRAINT seasons_pkey PRIMARY KEY (id)
+);

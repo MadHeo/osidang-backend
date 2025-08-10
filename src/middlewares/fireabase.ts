@@ -18,7 +18,8 @@ const serviceAccount = {
 // Firebase Admin 초기화
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount as admin.ServiceAccount),
-  storageBucket: 'osidang-c9c8e.appspot.com',
+  storageBucket:
+    process.env.FIREBASE_STORAGE_BUCKET || 'osidang-c9c8e.firebasestorage.app',
 });
 
 export const bucket = admin.storage().bucket();
