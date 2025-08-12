@@ -25,7 +25,7 @@ router.put('/update', authenticateToken, async (req, res) => {
 });
 
 //옷 삭제 API (인증 필요)
-router.delete('/delete', authenticateToken, async (req, res) => {
+router.delete('/delete/:id', authenticateToken, async (req, res) => {
   deleteClothes(req, res);
 });
 

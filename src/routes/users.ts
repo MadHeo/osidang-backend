@@ -8,6 +8,7 @@ import verifyEmail from '../services/verify/verify-email';
 import forgotPassword from '../services/auth/forgot-password';
 import changePassword from '../services/auth/change-password';
 import deleteUser from '../services/auth/delete';
+import refreshToken from '../services/auth/refresh-token';
 
 const router = Router();
 
@@ -49,6 +50,11 @@ router.post('/forgot-password', async (req, res) => {
 // 비밀번호 변경 API
 router.post('/change-password', async (req: AuthRequest, res) => {
   changePassword(req, res);
+});
+
+// 리프레시 토큰 발급 API
+router.post('/refresh-token', async (req, res) => {
+  refreshToken(req, res);
 });
 
 export default router;

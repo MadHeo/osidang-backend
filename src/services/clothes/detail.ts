@@ -10,15 +10,28 @@ const getClothesDetail = async (req: any, res: any) => {
   }
 
   try {
-    const result = await pool.query('SELECT * FROM clothes WHERE id = $1', [
+    const clothesResult = await pool.query('SELECT * FROM clothes WHERE id = $1', [
       clothesId,
     ]);
 
-    if (result.rows.length === 0) {
+    if (clothesResult.rows.length === 0) {
       return res.status(404).send('옷을 찾을 수 없습니다.');
     }
 
-    res.status(200).json(result.rows[0]);
+    const seasonResult = await pool.query(
+      `SELECT s.id, s.name 
+       FROM seasons s 
+       JOIN clothes_seasons cs ON s.id = cs.season_id 
+       WHERE cs.clothes_id = $1`,
+      [clothesId]
+    );
+
+    const clothesData = {
+      ...clothesResult.rows[0],
+      seasons: seasonResult.rows
+    };
+
+    res.status(200).json(clothesData);
   } catch (err) {
     console.error(err);
     res.status(500).send('Server error');
