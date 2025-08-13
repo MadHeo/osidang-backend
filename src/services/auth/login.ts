@@ -30,18 +30,18 @@ const login = async (req: any, res: any) => {
         { expiresIn: '1h' },
       );
 
-      // Refresh Token 생성 (30일)
+      // Refresh Token 생성 (6개월)
       const refreshToken = jwt.sign(
         {
           id: user.id,
         },
         process.env.REFRESH_TOKEN_SECRET as string,
-        { expiresIn: '30d' },
+        { expiresIn: '180d' },
       );
 
       // Refresh Token을 데이터베이스에 저장
       const refreshTokenExpiresAt = new Date();
-      refreshTokenExpiresAt.setDate(refreshTokenExpiresAt.getDate() + 30);
+      refreshTokenExpiresAt.setDate(refreshTokenExpiresAt.getDate() + 180);
 
       await pool.query(
         'UPDATE users SET refresh_token = $1, refresh_token_expires_at = $2 WHERE id = $3',

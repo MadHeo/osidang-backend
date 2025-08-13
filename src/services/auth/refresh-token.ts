@@ -64,12 +64,12 @@ const refreshToken = async (req: any, res: any) => {
         id: user.id,
       },
       process.env.REFRESH_TOKEN_SECRET as string,
-      { expiresIn: '30d' },
+      { expiresIn: '180d' },
     );
 
     // 새로운 Refresh Token을 데이터베이스에 업데이트
     const refreshTokenExpiresAt = new Date();
-    refreshTokenExpiresAt.setDate(refreshTokenExpiresAt.getDate() + 30);
+    refreshTokenExpiresAt.setDate(refreshTokenExpiresAt.getDate() + 180);
 
     await pool.query(
       'UPDATE users SET refresh_token = $1, refresh_token_expires_at = $2 WHERE id = $3',
