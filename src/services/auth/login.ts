@@ -27,7 +27,7 @@ const login = async (req: any, res: any) => {
           nickname: user.nickname,
         },
         process.env.JWT_SECRET as string,
-        { expiresIn: '1h' },
+        { expiresIn: '30d' },
       );
 
       // Refresh Token 생성 (6개월)

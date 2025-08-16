@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import cors from 'cors';
 import usersRoutes from './routes/users';
 import clothesRoutes from './routes/clothes';
+import planRoutes from './routes/plan';
 
 dotenv.config();
 
@@ -24,6 +25,7 @@ app.use(express.json());
 
 app.use('/users', usersRoutes);
 app.use('/clothes', clothesRoutes);
+app.use('/plan', planRoutes);
 
 app.listen(port, '0.0.0.0', () => {
   console.log(`Server is running on port ${port}`);
