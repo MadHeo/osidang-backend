@@ -3,12 +3,14 @@ import { AuthRequest } from '../../middlewares/auth';
 
 interface UpdatePlanRequest {
   planId: number;
+  title?: string;
+  description?: string;
   clothesIds: number[]; // 새로 연결할 옷 ID 배열
 }
 
 const updatePlan = async (req: any, res: any) => {
   const authReq = req as AuthRequest;
-  const { planId, clothesIds } = req.body as UpdatePlanRequest;
+  const { planId, title, description, clothesIds } = req.body as UpdatePlanRequest;
 
   if (!planId) {
     return res.status(400).send('계획 ID는 필수 항목입니다.');
@@ -32,10 +34,33 @@ const updatePlan = async (req: any, res: any) => {
         .send('해당 계획을 찾을 수 없거나 접근 권한이 없습니다.');
     }
 
-    // 2. 기존 plan_items 연결 모두 제거
+    // 2. plans 테이블의 title, description 업데이트 (값이 제공된 경우)
+    const updateFields = [];
+    const updateValues = [];
+    let paramIndex = 1;
+
+    if (title !== undefined) {
+      updateFields.push(`title = $${paramIndex}`);
+      updateValues.push(title);
+      paramIndex++;
+    }
+
+    if (description !== undefined) {
+      updateFields.push(`description = $${paramIndex}`);
+      updateValues.push(description);
+      paramIndex++;
+    }
+
+    if (updateFields.length > 0) {
+      updateValues.push(planId);
+      const updateQuery = `UPDATE plans SET ${updateFields.join(', ')} WHERE id = $${paramIndex}`;
+      await client.query(updateQuery, updateValues);
+    }
+
+    // 3. 기존 plan_items 연결 모두 제거
     await client.query('DELETE FROM plan_items WHERE plan_id = $1', [planId]);
 
-    // 3. 새로운 옷 항목들을 plan_items 테이블에 추가
+    // 4. 새로운 옷 항목들을 plan_items 테이블에 추가
     if (clothesIds && clothesIds.length > 0) {
       const values = clothesIds
         .map((clotheId) => {
@@ -50,7 +75,7 @@ const updatePlan = async (req: any, res: any) => {
 
     await client.query('COMMIT');
 
-    // 4. 수정된 계획과 연결된 옷 정보를 함께 조회
+    // 5. 수정된 계획과 연결된 옷 정보를 함께 조회
     const finalResult = await client.query(
       `
       SELECT 

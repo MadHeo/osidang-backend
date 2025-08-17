@@ -75,12 +75,11 @@ const updateClothes = async (req: any, res: any) => {
         },
       });
 
-      // Firebase Storage의 다운로드 URL 생성 (토큰 포함)
-      const [downloadUrl] = await file.getSignedUrl({
-        action: 'read',
-        expires: '03-09-2491' // 매우 먼 미래 날짜로 설정
-      });
-      final_image_url = downloadUrl;
+      // Firebase Storage 파일을 공개적으로 접근 가능하게 설정
+      await file.makePublic();
+      
+      // 공개 URL 생성 (토큰 없는 직접 접근 URL)
+      final_image_url = `https://storage.googleapis.com/${bucket.name}/${fileName}`;
     }
 
     // 트랜잭션 시작
